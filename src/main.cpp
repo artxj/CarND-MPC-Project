@@ -9,6 +9,8 @@
 #include "MPC.h"
 #include "json.hpp"
 
+#define DEBUG_TEXT
+
 // for convenience
 using json = nlohmann::json;
 
@@ -16,6 +18,9 @@ using json = nlohmann::json;
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
+
+const size_t ref_N = 100; // how many points to diplay for reference line
+const double deg2rad25 = deg2rad(25);
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -69,7 +74,8 @@ int main() {
   uWS::Hub h;
 
   // MPC is initialized here!
-  MPC mpc;
+  // latency = 100ms, ref velocity = 50mph
+  MPC mpc = MPC(0.1, 50);
 
   h.onMessage([&mpc](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -93,23 +99,55 @@ int main() {
           double v = j[1]["speed"];
 
           /*
-          * TODO: Calculate steering angle and throttle using MPC.
+          * Calculate steering angle and throttle using MPC.
           *
           * Both are in between [-1, 1].
           *
           */
-          double steer_value;
-          double throttle_value;
+
+          // converting points to vehicle coordinates
+          const unsigned int pts_size = ptsx.size();
+          Eigen::VectorXd ptsx_vehicle = Eigen::VectorXd(pts_size);
+          Eigen::VectorXd ptsy_vehicle = Eigen::VectorXd(pts_size);
+          const double sin_psi = sin(psi);
+          const double cos_psi = cos(psi);
+          for (unsigned int i = 0; i < pts_size; ++i) {
+            const double x_diff = ptsx[i] - px;
+            const double y_diff = ptsy[i] - py;
+            ptsx_vehicle[i] = x_diff * cos_psi + y_diff * sin_psi;
+            ptsy_vehicle[i] = -x_diff * sin_psi + y_diff * cos_psi;
+          }
+
+          // calculating the polyfit
+          Eigen::VectorXd coeffs = polyfit(ptsx_vehicle, ptsy_vehicle, 3);
+
+          // cte and epsi
+          // in vehicle coords px=0, py=0, psi=0
+          const double cte = polyeval(coeffs, 0);
+
+          // all other coeffs in derivative == 0 since px == 0
+          // sign is changed since the angle is opposite in the simulator
+          const double epsi = atan(coeffs[1]);
+
+          Eigen::VectorXd state = Eigen::VectorXd(6);
+          // px=0, py=0, psi=0 in vehicle coords
+          state << 0, 0, 0, v, cte, epsi;
+
+          const vector<double> actuators = mpc.Solve(state, coeffs);
+
+#ifdef DEBUG_TEXT
+          std::cout << "Actuators:" << actuators[0] << ", " << actuators[1] << std::endl;
+#endif
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-          msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = throttle_value;
+          msgJson["steering_angle"] = -actuators[0] / deg2rad25;
+          msgJson["throttle"] = actuators[1];
 
-          //Display the MPC predicted trajectory 
-          vector<double> mpc_x_vals;
-          vector<double> mpc_y_vals;
+          //Display the MPC predicted trajectory
+          const vector<double> mpc_x_vals = mpc.mpc_x_vals;
+          const vector<double> mpc_y_vals = mpc.mpc_y_vals;
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
@@ -118,11 +156,16 @@ int main() {
           msgJson["mpc_y"] = mpc_y_vals;
 
           //Display the waypoints/reference line
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
+          vector<double> next_x_vals(ref_N);
+          vector<double> next_y_vals(ref_N);
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
+          for (unsigned int i = 0; i < ref_N; ++i) {
+            const double x = i;
+            next_x_vals[i] = x;
+            next_y_vals[i] = polyeval(coeffs, x);
+          }
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;

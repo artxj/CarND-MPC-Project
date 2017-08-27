@@ -3,6 +3,45 @@ Self-Driving Car Engineer Nanodegree Program
 
 ---
 
+## Rubric
+
+### The Model
+
+The MPC optimizer minimizes the loss of
+
+`loss = (cross track error)^2 + (orientation error)^2 + (velocity - reference_velocity)^2 + delta^2 + acceleration^2 + 1000 * (delta difference)^2 + (acceleration difference)^2`
+
+The state vector consists of `[x, y, orientation, velocity, cross track error, orientation error]`. The cross track error and orientation error were computed in the code.
+
+Kinematic equations are
+
+`x(t+1) = x(t) + v(t) * cos(ksi(t)) * dt`
+
+`y(t+1) = y(t) + v(t) * sin(ksi(t)) * dt`
+
+`ksi(t+1) = ksi(t) + v(t)/Lf * delta * dt`
+
+`v(t+1) = v(t) + a(t) * dt`
+
+### Timesteps
+
+The number of timesteps indicates how accurate the predicted path is far enough from the current state and increasing the duration results in more sharp vehicle movement when we can cut turns instead of move through them smoothly.
+
+During testing it appeared that duration = 50ms was good enough. If number of timesteps was more than 30 it leaded to slow MPC computations. So I ended up with number of timesteps equals to 20.
+
+### Polynomial fitting and MPC preprocessing
+
+All given checkpoints were transformed in vehicle coordinate system first. After that the polynomial of order 3 was fitted. The preprocessing also allowed to simplify calculations a little (x, y, ksi initial state coordinates became 0, it also affected calculations of cross track and orientation errors).
+
+### Latency
+
+The MPC handles a 100ms latency. To deal with it, the previous values of delta and acceleration were stored in the MPC object. When calculating the next cycle of the algorithm, control values for checkpoints in [0, 100ms] time interval was pre-defined using these stored ones by setting corresponding constraints in the optimization problem. We only need to store one pair of [delta, acceleration] values even if we have a lot of checkpoints in [0, 100ms] interval since during this period we can't change any control value.
+
+### Result
+
+The video of the MPC running the vehicle for one lap can be found [here](./videos/lap.mov).
+
+
 ## Dependencies
 
 * cmake >= 3.5
@@ -19,7 +58,7 @@ Self-Driving Car Engineer Nanodegree Program
   * Run either `install-mac.sh` or `install-ubuntu.sh`.
   * If you install from source, checkout to commit `e94b6e1`, i.e.
     ```
-    git clone https://github.com/uWebSockets/uWebSockets 
+    git clone https://github.com/uWebSockets/uWebSockets
     cd uWebSockets
     git checkout e94b6e1
     ```
@@ -42,7 +81,7 @@ Self-Driving Car Engineer Nanodegree Program
        per this [forum post](https://discussions.udacity.com/t/incorrect-checksum-for-freed-object/313433/19).
   * Linux
     * You will need a version of Ipopt 3.12.1 or higher. The version available through `apt-get` is 3.11.x. If you can get that version to work great but if not there's a script `install_ipopt.sh` that will install Ipopt. You just need to download the source from the Ipopt [releases page](https://www.coin-or.org/download/source/Ipopt/).
-    * Then call `install_ipopt.sh` with the source directory as the first argument, ex: `sudo bash install_ipopt.sh Ipopt-3.12.1`. 
+    * Then call `install_ipopt.sh` with the source directory as the first argument, ex: `sudo bash install_ipopt.sh Ipopt-3.12.1`.
   * Windows: TODO. If you can use the Linux subsystem and follow the Linux instructions.
 * [CppAD](https://www.coin-or.org/CppAD/)
   * Mac: `brew install cppad`
